@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.28.2", features = ["full"] }
 httparse = "1.8.0"
+trust-dns-resolver = "0.22.0"
