@@ -3,7 +3,6 @@ import threading
 import logging.handlers
 import re
 
-# Configurar o servidor SysLog
 # syslog_handler = logging.handlers.SysLogHandler(
 #     address=('endereço_do_syslog', 514))
 # logger = logging.getLogger()
@@ -11,7 +10,7 @@ import re
 # logger.setLevel(logging.INFO)
 
 
-def forward(source, destination):
+def forward(source, destination, client):
     try:
         while True:
             data = source.recv(4096)
@@ -43,7 +42,7 @@ def handle_client(client_socket, client_address):
         # Verificar se a palavra "monitorando" está no objeto requisitado
         if b"monitorando" in request:
             response = b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Acesso n\xc3\xa3o autorizado!</h1></body></html>'
-            client_socket.send(response)
+            client_socket.sendall(response)
 
             # Log para o servidor SysLog
             # logger.info(
@@ -72,22 +71,19 @@ def handle_client(client_socket, client_address):
 
                     # Forward bytes between client and destination
                     client_to_destination = threading.Thread(
-                        target=forward, args=(client_socket, destination_socket))
+                        target=forward, args=(client_socket, destination_socket, True))
                     destination_to_client = threading.Thread(
-                        target=forward, args=(destination_socket, client_socket))
+                        target=forward, args=(destination_socket, client_socket, False))
                     client_to_destination.start()
                     destination_to_client.start()
                     client_to_destination.join()
                     destination_to_client.join()
                 else:
                     # Extrair o hostname do URL
-                    url_split = url.split(':')
-                    destination_host = url_split[0]
+                    url_split = url.split('/')
+                    destination_host = url_split[2]
 
-                    if 'google.com' in destination_host:
-                        return
-
-                    port = url_split[1]
+                    port = 80  # url_split[1]
 
                     # Encaminhar requisição para o servidor
                     destination_socket = socket.socket(
@@ -124,11 +120,14 @@ server.listen(5)
 
 print("Proxy server listening on port 8080...")
 
-while True:
-    # Aceitar conexão do browser
-    client_socket, client_address = server.accept()
+try:
+    while True:
+        # Aceitar conexão do browser
+        client_socket, client_address = server.accept()
 
-    # Criar uma thread para lidar com a conexão do browser
-    client_handler = threading.Thread(
-        target=handle_client, args=(client_socket, client_address), daemon=True)
-    client_handler.start()
+        # Criar uma thread para lidar com a conexão do browser
+        client_handler = threading.Thread(
+            target=handle_client, args=(client_socket, client_address), daemon=True)
+        client_handler.start()
+except KeyboardInterrupt as e:
+    server.close()
