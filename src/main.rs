@@ -88,7 +88,7 @@ async fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn std::err
         let mut buffer = [0u8; 1024];
 
         loop {
-            let n = host_stream.read(&mut buffer).await?;
+            let n = host_stream.read_until(&mut buffer).await?;
             println!("read {} bytes", n);
             stream.write_all(&buffer[..n]).await?;
             if n == 0 {
