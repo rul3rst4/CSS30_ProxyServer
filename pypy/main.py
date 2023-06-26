@@ -3,11 +3,11 @@ import threading
 import logging.handlers
 import re
 
-# syslog_handler = logging.handlers.SysLogHandler(
-#     address=('endereço_do_syslog', 514))
-# logger = logging.getLogger()
-# logger.addHandler(syslog_handler)
-# logger.setLevel(logging.INFO)
+syslog_handler = logging.handlers.SysLogHandler(
+    address=('192.168.1.13', 514))
+logger = logging.getLogger()
+logger.addHandler(syslog_handler)
+logger.setLevel(logging.INFO)
 
 
 def forward(source, destination, client):
@@ -45,8 +45,8 @@ def handle_client(client_socket, client_address):
             client_socket.sendall(response)
 
             # Log para o servidor SysLog
-            # logger.info(
-            #     f"Blocked request from {client_address} containing 'monitorando'")
+            logger.info(
+                f"Blocked request from {client_address} containing 'monitorando'")
         else:
             # Parse da requisição HTTP
             match = re.match(r'([A-Z]+) (\S+) HTTP/1.[01]', http_request_line)
@@ -64,6 +64,16 @@ def handle_client(client_socket, client_address):
                         socket.AF_INET, socket.SOCK_STREAM)
                     destination_socket.connect(
                         (destination_host, destination_port))
+
+                    remote_ip, remote_port = destination_socket.getpeername()
+
+                    # Log para o servidor SysLog
+
+                    logger.info(
+                        f"Client: {client_address}, Server: ('{remote_ip}', {remote_port}) - {destination_host}'")
+
+                    logger.info(
+                        f"New Client: {client_address}', Server: ('{remote_ip}', {remote_port}) - {destination_host}'")
 
                     # Inform the client that a tunnel has been established
                     client_socket.sendall(
@@ -89,10 +99,17 @@ def handle_client(client_socket, client_address):
                     destination_socket = socket.socket(
                         socket.AF_INET, socket.SOCK_STREAM)
                     destination_socket.connect((destination_host, int(port)))
+
+                    remote_ip, remote_port = destination_socket.getpeername()
+
+                    # Log para o servidor SysLog
+                    logger.info(
+                        f"New Client: {client_address}', Server: ('{remote_ip}', {remote_port}) - {destination_host}'")
+
                     destination_socket.sendall(request)
 
                     # Receber resposta do servidor
-                    response = destination_socket.recv(4096)
+                    response = destination_socket.recv(8196)
 
                     # Repassar resposta para o cliente
                     client_socket.send(response)
@@ -102,8 +119,8 @@ def handle_client(client_socket, client_address):
 
                     # Log para o servidor SysLog
                     status_code = response.split()[1].decode()
-                    # logger.info(
-                    #     f"Client: {client_address}, Server: {destination_host}, Status Code: {status_code}")
+                    logger.info(
+                        f"New Response: Client: {client_address}, Server: {destination_host}, Status Code: {status_code}")
             else:
                 client_socket.send(b'HTTP/1.1 400 Bad Request\r\n\r\n')
     except Exception as e:
