@@ -168,13 +168,14 @@ def integrity_check():
             exit()
 
 
+server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.bind(('127.0.0.1', 8080))
+server.listen(5)
+
+
 def main_loop():
     log("Initializing the CSR44-Proxy...")
     integrity_check()
-
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.bind(('127.0.0.1', 8080))
-    server.listen(5)
 
     log("Proxy server listening on port 8080...")
 
@@ -194,6 +195,8 @@ def main_loop():
 def signal_handler(signum, frame):
     res = input("Ctrl-c was pressed. Do you really want to exit? y/n ")
     if res == 'y':
+        server.shutdown(socket.SHUT_RDWR)
+        server.close()
         exit(1)
 
 
@@ -206,5 +209,5 @@ main_thread.start()
 
 while (True):
     if control_abort:
-        exit()
+        exit(1)
     time.sleep(1)
