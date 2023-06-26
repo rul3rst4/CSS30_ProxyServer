@@ -2,12 +2,21 @@ import socket
 import threading
 import logging.handlers
 import re
+import hashlib
+import signal
+import time
 
 syslog_handler = logging.handlers.SysLogHandler(
     address=('192.168.1.13', 514))
 logger = logging.getLogger()
 logger.addHandler(syslog_handler)
 logger.setLevel(logging.INFO)
+control_abort = False
+
+
+def log(message):
+    print(f'CSR44-Proxy - {message}')
+    logger.info(f'CSR44-Proxy - {message}')
 
 
 def forward(source, destination, client):
@@ -41,18 +50,30 @@ def handle_client(client_socket, client_address):
 
         # Verificar se a palavra "monitorando" está no objeto requisitado
         if b"monitorando" in request:
-            response = b'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><body><h1>Acesso n\xc3\xa3o autorizado!</h1></body></html>'
+            response_body = '''
+                <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>Exemplo de resposta HTTP </title>
+                    </head>
+                    <body>
+                        <h3>Monitorando</h3>
+                        <span><b>Acesso não autorizado! :(</b></span>
+                    </body>
+                </html>
+            '''
+            response_body = response_body.encode('utf-8')
+            response = f'HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {len(response_body)}\r\n\r\n'.encode('utf-8'
+                                                                                                                            ) + response_body
             client_socket.sendall(response)
 
             # Log para o servidor SysLog
-            logger.info(
-                f"Blocked request from {client_address} containing 'monitorando'")
+            log(f"Blocked request from {client_address} containing 'monitorando'")
         else:
             # Parse da requisição HTTP
             match = re.match(r'([A-Z]+) (\S+) HTTP/1.[01]', http_request_line)
             if match:
                 method, url = match.groups()
-                print(url)
 
                 if method == 'CONNECT':
                     # Handle CONNECT method for HTTPS tunneling
@@ -68,11 +89,7 @@ def handle_client(client_socket, client_address):
                     remote_ip, remote_port = destination_socket.getpeername()
 
                     # Log para o servidor SysLog
-
-                    logger.info(
-                        f"Client: {client_address}, Server: ('{remote_ip}', {remote_port}) - {destination_host}'")
-
-                    logger.info(
+                    log(
                         f"New Client: {client_address}', Server: ('{remote_ip}', {remote_port}) - {destination_host}'")
 
                     # Inform the client that a tunnel has been established
@@ -103,7 +120,7 @@ def handle_client(client_socket, client_address):
                     remote_ip, remote_port = destination_socket.getpeername()
 
                     # Log para o servidor SysLog
-                    logger.info(
+                    log(
                         f"New Client: {client_address}', Server: ('{remote_ip}', {remote_port}) - {destination_host}'")
 
                     destination_socket.sendall(request)
@@ -119,32 +136,75 @@ def handle_client(client_socket, client_address):
 
                     # Log para o servidor SysLog
                     status_code = response.split()[1].decode()
-                    logger.info(
+                    log(
                         f"New Response: Client: {client_address}, Server: {destination_host}, Status Code: {status_code}")
             else:
                 client_socket.send(b'HTTP/1.1 400 Bad Request\r\n\r\n')
     except Exception as e:
-        print(f"Exception handling request: {e}")
+        log(f"Exception handling request: {e}")
     finally:
         # Encerrar a conexão com o cliente
         client_socket.close()
 
 
-# Configurar o servidor proxy
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(('127.0.0.1', 8080))
-server.listen(5)
+def integrity_check():
+    global control_abort
+    log("Performing integrity check...")
+    with open('integrity_check.txt', 'r') as f:
+        integrity_check = f.read()
+        sum = ''
+        with open('main.py', 'rb') as actual_f:
+            contents = actual_f.read()
+            sum = hashlib.sha256(contents).hexdigest()
 
-print("Proxy server listening on port 8080...")
+        log(f"Original File: {integrity_check}")
+        log(f"Actual File: {sum}")
 
-try:
-    while True:
-        # Aceitar conexão do browser
-        client_socket, client_address = server.accept()
+        if integrity_check == sum:
+            log("Integrity check passed!")
+        else:
+            log("Integrity check failed! Aborting...")
+            control_abort = True
+            exit()
 
-        # Criar uma thread para lidar com a conexão do browser
-        client_handler = threading.Thread(
-            target=handle_client, args=(client_socket, client_address), daemon=True)
-        client_handler.start()
-except KeyboardInterrupt as e:
-    server.close()
+
+def main_loop():
+    log("Initializing the CSR44-Proxy...")
+    integrity_check()
+
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(('127.0.0.1', 8080))
+    server.listen(5)
+
+    log("Proxy server listening on port 8080...")
+
+    try:
+        while True:
+            # Aceitar conexão do browser
+            client_socket, client_address = server.accept()
+
+            # Criar uma thread para lidar com a conexão do browser
+            client_handler = threading.Thread(
+                target=handle_client, args=(client_socket, client_address), daemon=True)
+            client_handler.start()
+    except KeyboardInterrupt as e:
+        server.close()
+
+
+def signal_handler(signum, frame):
+    res = input("Ctrl-c was pressed. Do you really want to exit? y/n ")
+    if res == 'y':
+        exit(1)
+
+
+signal.signal(signal.SIGINT, signal_handler)
+
+main_thread = threading.Thread(
+    target=main_loop, daemon=True)
+
+main_thread.start()
+
+while (True):
+    if control_abort:
+        exit()
+    time.sleep(1)
